@@ -1,5 +1,5 @@
 
-export type ExerciseType = 'strength' | 'cardio' | 'endurance';
+export type ExerciseType = 'strength' | 'cardio' | 'endurance' | 'stretch';
 
 export interface StrengthSet {
   weight: number;
@@ -18,12 +18,16 @@ export interface EnduranceData {
   pace?: number; // calculated: min/km
 }
 
+export interface StretchData {
+  completed: boolean;
+}
+
 export interface Exercise {
   id: string;
   name: string;
   type: ExerciseType;
   lastPerformed?: string; // ISO date
-  lastData?: StrengthSet[] | CardioData | EnduranceData;
+  lastData?: StrengthSet[] | CardioData | EnduranceData | StretchData;
 }
 
 export interface WorkoutTemplate {
@@ -42,7 +46,7 @@ export interface WorkoutSession {
     exerciseId: string;
     exerciseName: string;
     type: ExerciseType;
-    data: StrengthSet[] | CardioData | EnduranceData;
+    data: StrengthSet[] | CardioData | EnduranceData | StretchData;
   }[];
 }
 

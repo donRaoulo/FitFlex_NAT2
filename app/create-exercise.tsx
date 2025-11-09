@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import {
   View,
@@ -13,7 +12,11 @@ import {
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { IconSymbol } from '@/components/IconSymbol';
 import { useAppTheme } from '@/contexts/ThemeContext';
-import { getExercises, saveExercises } from '@/utils/storage';
+import {
+  getExercises,
+  saveExercises,
+  savePendingExerciseSelection,
+} from '@/utils/storage';
 import { Exercise, ExerciseType } from '@/types/workout';
 
 export default function CreateExerciseScreen() {
@@ -30,13 +33,14 @@ export default function CreateExerciseScreen() {
     { type: 'strength', label: 'Krafttraining', icon: 'figure.strengthtraining.traditional' },
     { type: 'cardio', label: 'Cardio', icon: 'heart.fill' },
     { type: 'endurance', label: 'Ausdauer', icon: 'figure.run' },
+    { type: 'stretch', label: 'Dehnen', icon: 'figure.cooldown' },
   ];
 
   const handleSave = async () => {
     console.log('Saving exercise:', exerciseName, selectedType);
     
     if (!exerciseName.trim()) {
-      Alert.alert('Fehler', 'Bitte gib einen Übungsnamen ein');
+      Alert.alert('Fehler', 'Bitte gib einen Ãœbungsnamen ein');
       return;
     }
 
@@ -50,31 +54,25 @@ export default function CreateExerciseScreen() {
 
       await saveExercises([...exercises, newExercise]);
       console.log('Exercise saved successfully');
-      
-      Alert.alert('Erfolg', 'Übung wurde erstellt', [
-        { 
-          text: 'OK', 
-          onPress: () => {
-            // Navigate back to select-exercise screen with the new exercise
-            if (mode === 'create') {
-              router.push({
-                pathname: '/select-exercise',
-                params: { mode: 'create' }
-              });
-            } else if (mode === 'edit' && templateId) {
-              router.push({
-                pathname: '/select-exercise',
-                params: { mode: 'edit', templateId }
-              });
-            } else {
-              router.back();
-            }
-          }
-        },
-      ]);
+
+      const selectionMode =
+        mode === 'edit' ? 'edit' : mode === 'create' ? 'create' : undefined;
+
+      if (selectionMode) {
+        await savePendingExerciseSelection({
+          mode: selectionMode,
+          templateId: selectionMode === 'edit' ? templateId : undefined,
+          exercise: newExercise,
+        });
+      }
+
+      router.back();
+      if (selectionMode === 'create' || (selectionMode === 'edit' && templateId)) {
+        router.back();
+      }
     } catch (error) {
       console.error('Error saving exercise:', error);
-      Alert.alert('Fehler', 'Übung konnte nicht gespeichert werden');
+      Alert.alert('Fehler', 'Ãœbung konnte nicht gespeichert werden');
     }
   };
 
@@ -84,7 +82,7 @@ export default function CreateExerciseScreen() {
         <TouchableOpacity onPress={() => router.back()} style={styles.headerButton}>
           <IconSymbol name="xmark" size={24} color={colors.text} />
         </TouchableOpacity>
-        <Text style={[styles.headerTitle, { color: colors.text }]}>Neue Übung</Text>
+        <Text style={[styles.headerTitle, { color: colors.text }]}>Neue Ãœbung</Text>
         <TouchableOpacity onPress={handleSave} style={styles.headerButton}>
           <Text style={[styles.saveText, { color: colors.primary }]}>Speichern</Text>
         </TouchableOpacity>
@@ -92,18 +90,18 @@ export default function CreateExerciseScreen() {
 
       <ScrollView style={styles.content} contentContainerStyle={styles.scrollContent}>
         <View style={styles.section}>
-          <Text style={[styles.label, { color: colors.text }]}>Übungsname</Text>
+          <Text style={[styles.label, { color: colors.text }]}>Ãœbungsname</Text>
           <TextInput
             style={[styles.input, { backgroundColor: colors.card, color: colors.text, borderColor: colors.border }]}
             value={exerciseName}
             onChangeText={setExerciseName}
-            placeholder="z.B. Bankdrücken"
+            placeholder="z.B. BankdrÃ¼cken"
             placeholderTextColor={colors.textSecondary}
           />
         </View>
 
         <View style={styles.section}>
-          <Text style={[styles.label, { color: colors.text }]}>Übungstyp</Text>
+          <Text style={[styles.label, { color: colors.text }]}>Ãœbungstyp</Text>
           {exerciseTypes.map(type => (
             <TouchableOpacity
               key={type.type}
@@ -199,3 +197,4 @@ const styles = StyleSheet.create({
     flex: 1,
   },
 });
+

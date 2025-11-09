@@ -48,6 +48,10 @@ export default function TabLayout() {
       return '/(tabs)/(home)/';
     }
 
+    if (normalizedPath === '/settings') {
+      return '/(tabs)/profile';
+    }
+
     const matched = tabs.find((tab) => {
       const normalizedRoute = normalizeForMatch(tab.route);
       if (normalizedRoute === '/') {

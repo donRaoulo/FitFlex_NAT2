@@ -10,10 +10,15 @@ import {
   Alert,
   Platform,
 } from 'react-native';
-import { useRouter, useLocalSearchParams } from 'expo-router';
+import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
 import { IconSymbol } from '@/components/IconSymbol';
 import { useAppTheme } from '@/contexts/ThemeContext';
-import { getWorkoutTemplates, saveWorkoutTemplates } from '@/utils/storage';
+import {
+  getWorkoutTemplates,
+  saveWorkoutTemplates,
+  consumePendingExerciseSelection,
+} from '@/utils/storage';
+import { getExerciseTypeLabel } from '@/utils/exercise';
 import { WorkoutTemplate, Exercise } from '@/types/workout';
 
 export default function EditTemplateScreen() {
@@ -44,23 +49,28 @@ export default function EditTemplateScreen() {
     loadTemplate();
   }, [loadTemplate]);
 
-  // Handle exercise selection from select-exercise screen
-  useEffect(() => {
-    if (params.selectedExercise) {
-      try {
-        const exercise = JSON.parse(params.selectedExercise as string);
-        console.log('Adding exercise to template:', exercise);
-        setSelectedExercises((previous) => {
-          if (previous.find((existing) => existing.id === exercise.id)) {
-            return previous;
-          }
-          return [...previous, exercise];
-        });
-      } catch (error) {
-        console.error('Error parsing selected exercise:', error);
-      }
-    }
-  }, [params.selectedExercise]);
+  useFocusEffect(
+    useCallback(() => {
+      let isActive = true;
+
+      const syncPendingExercise = async () => {
+        const exercise = await consumePendingExerciseSelection('edit', templateId);
+        if (exercise && isActive) {
+          setSelectedExercises(previous => {
+            if (previous.find(existing => existing.id === exercise.id)) {
+              return previous;
+            }
+            return [...previous, exercise];
+          });
+        }
+      };
+
+      syncPendingExercise();
+      return () => {
+        isActive = false;
+      };
+    }, [templateId])
+  );
 
   const handleSave = async () => {
     console.log('Saving template:', templateName, selectedExercises);
@@ -71,7 +81,7 @@ export default function EditTemplateScreen() {
     }
 
     if (selectedExercises.length === 0) {
-      Alert.alert('Fehler', 'Bitte füge mindestens eine Übung hinzu');
+      Alert.alert('Fehler', 'Bitte fuege mindestens eine Uebung hinzu');
       return;
     }
 
@@ -85,10 +95,7 @@ export default function EditTemplateScreen() {
 
       await saveWorkoutTemplates(updatedTemplates);
       console.log('Template updated successfully');
-      
-      Alert.alert('Erfolg', 'Training wurde aktualisiert', [
-        { text: 'OK', onPress: () => router.push('/(tabs)/trainings') },
-      ]);
+      router.replace('/(tabs)/trainings');
     } catch (error) {
       console.error('Error saving template:', error);
       Alert.alert('Fehler', 'Training konnte nicht gespeichert werden');
@@ -108,7 +115,7 @@ export default function EditTemplateScreen() {
   if (loading) {
     return (
       <View style={[styles.container, { backgroundColor: colors.background }]}>
-        <Text style={[styles.loadingText, { color: colors.text }]}>Lädt...</Text>
+        <Text style={[styles.loadingText, { color: colors.text }]}>LÃ¤dt...</Text>
       </View>
     );
   }
@@ -139,20 +146,20 @@ export default function EditTemplateScreen() {
 
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
-            <Text style={[styles.label, { color: colors.text }]}>Übungen</Text>
+            <Text style={[styles.label, { color: colors.text }]}>Ãœbungen</Text>
             <TouchableOpacity
               style={[styles.addButton, { backgroundColor: colors.primary }]}
               onPress={addExercise}
             >
               <IconSymbol name="plus" size={20} color="#FFFFFF" />
-              <Text style={styles.addButtonText}>Übung hinzufügen</Text>
+              <Text style={styles.addButtonText}>Ãœbung hinzufÃ¼gen</Text>
             </TouchableOpacity>
           </View>
 
           {selectedExercises.length === 0 ? (
             <View style={[styles.emptyCard, { backgroundColor: colors.card }]}>
               <Text style={[styles.emptyText, { color: colors.textSecondary }]}>
-                Noch keine Übungen hinzugefügt
+                Noch keine Ãœbungen hinzugefÃ¼gt
               </Text>
             </View>
           ) : (
@@ -167,8 +174,7 @@ export default function EditTemplateScreen() {
                       {exercise.name}
                     </Text>
                     <Text style={[styles.exerciseType, { color: colors.textSecondary }]}>
-                      {exercise.type === 'strength' ? 'Krafttraining' : 
-                       exercise.type === 'cardio' ? 'Cardio' : 'Ausdauer'}
+                      {getExerciseTypeLabel(exercise.type)}
                     </Text>
                   </View>
                 </View>
@@ -298,3 +304,6 @@ const styles = StyleSheet.create({
     marginTop: 100,
   },
 });
+
+
+

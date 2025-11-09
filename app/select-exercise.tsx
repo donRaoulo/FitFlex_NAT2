@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useCallback } from 'react';
 import {
   View,
   Text,
@@ -9,27 +9,29 @@ import {
   TextInput,
   Platform,
 } from 'react-native';
-import { useRouter, useLocalSearchParams } from 'expo-router';
+import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
 import { IconSymbol } from '@/components/IconSymbol';
 import { useAppTheme } from '@/contexts/ThemeContext';
-import { getExercises, saveExercises } from '@/utils/storage';
+import {
+  getExercises,
+  saveExercises,
+  savePendingExerciseSelection,
+} from '@/utils/storage';
+import { getExerciseTypeLabel } from '@/utils/exercise';
 import { Exercise, ExerciseType } from '@/types/workout';
 
 export default function SelectExerciseScreen() {
   const { colors } = useAppTheme();
   const router = useRouter();
   const params = useLocalSearchParams();
-  const mode = params.mode as string;
+  const modeParam = (params.mode as string) || 'create';
+  const mode = modeParam === 'edit' ? 'edit' : 'create';
   const templateId = params.templateId as string;
   
   const [exercises, setExercises] = useState<Exercise[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
 
-  useEffect(() => {
-    loadExercises();
-  }, []);
-
-  const loadExercises = async () => {
+  const loadExercises = useCallback(async () => {
     const loadedExercises = await getExercises();
     
     // Add default exercises if none exist
@@ -48,37 +50,33 @@ export default function SelectExerciseScreen() {
         { id: '11', name: 'Crosstrainer', type: 'cardio' },
         { id: '12', name: 'Laufen', type: 'endurance' },
         { id: '13', name: 'Radfahren', type: 'endurance' },
+        { id: '14', name: 'Ganzkörper Dehnen', type: 'stretch' },
       ];
       await saveExercises(defaultExercises);
       setExercises(defaultExercises);
     } else {
       setExercises(loadedExercises);
     }
-  };
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      loadExercises();
+    }, [loadExercises])
+  );
 
   const filteredExercises = exercises.filter(exercise =>
     exercise.name.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
-  const selectExercise = (exercise: Exercise) => {
+  const selectExercise = async (exercise: Exercise) => {
     console.log('Exercise selected:', exercise);
-    // Navigate back with the selected exercise data
-    if (mode === 'create') {
-      router.push({
-        pathname: '/create-template',
-        params: { selectedExercise: JSON.stringify(exercise) }
-      });
-    } else if (mode === 'edit' && templateId) {
-      router.push({
-        pathname: '/edit-template',
-        params: { 
-          templateId,
-          selectedExercise: JSON.stringify(exercise) 
-        }
-      });
-    } else {
-      router.back();
-    }
+    await savePendingExerciseSelection({
+      mode,
+      templateId: mode === 'edit' ? templateId : undefined,
+      exercise,
+    });
+    router.back();
   };
 
   const createNewExercise = () => {
@@ -131,8 +129,7 @@ export default function SelectExerciseScreen() {
                 {exercise.name}
               </Text>
               <Text style={[styles.exerciseType, { color: colors.textSecondary }]}>
-                {exercise.type === 'strength' ? 'Krafttraining' : 
-                 exercise.type === 'cardio' ? 'Cardio' : 'Ausdauer'}
+                {getExerciseTypeLabel(exercise.type)}
               </Text>
             </View>
             <IconSymbol name="chevron.right" size={20} color={colors.textSecondary} />

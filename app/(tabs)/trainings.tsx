@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -15,12 +15,19 @@ import { IconSymbol } from '@/components/IconSymbol';
 import { useAppTheme } from '@/contexts/ThemeContext';
 import { getWorkoutTemplates, saveWorkoutTemplates } from '@/utils/storage';
 import { WorkoutTemplate } from '@/types/workout';
+import Dialog from '@mui/material/Dialog';
+import DialogTitle from '@mui/material/DialogTitle';
+import DialogContent from '@mui/material/DialogContent';
+import DialogContentText from '@mui/material/DialogContentText';
+import DialogActions from '@mui/material/DialogActions';
+import Button from '@mui/material/Button';
 
 export default function TrainingsScreen() {
   const { colors } = useAppTheme();
   const router = useRouter();
   const [templates, setTemplates] = useState<WorkoutTemplate[]>([]);
   const [refreshing, setRefreshing] = useState(false);
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
 
   const loadTemplates = async () => {
     console.log('Loading templates...');
@@ -46,24 +53,40 @@ export default function TrainingsScreen() {
     setRefreshing(false);
   };
 
-  const deleteTemplate = (templateId: string) => {
-    Alert.alert(
-      'Training löschen',
-      'Möchtest du dieses Training wirklich löschen?',
-      [
-        { text: 'Abbrechen', style: 'cancel' },
-        {
-          text: 'Löschen',
-          style: 'destructive',
-          onPress: async () => {
-            console.log('Deleting template:', templateId);
-            const updatedTemplates = templates.filter(t => t.id !== templateId);
-            await saveWorkoutTemplates(updatedTemplates);
-            setTemplates(updatedTemplates);
-          },
-        },
-      ]
-    );
+  const performDelete = useCallback((templateId: string) => {
+    setTemplates(current => {
+      const updated = current.filter(t => t.id !== templateId);
+      void saveWorkoutTemplates(updated);
+      return updated;
+    });
+  }, []);
+
+  const handleDeleteTemplate = (templateId: string) => {
+    if (Platform.OS === 'web') {
+      setPendingDeleteId(templateId);
+      return;
+    }
+
+    Alert.alert('Training loeschen', 'Moechtest du dieses Training wirklich loeschen?', [
+      { text: 'Abbrechen', style: 'cancel' },
+      {
+        text: 'Loeschen',
+        style: 'destructive',
+        onPress: () => performDelete(templateId),
+      },
+    ]);
+  };
+
+  const confirmWebDeletion = () => {
+    if (!pendingDeleteId) {
+      return;
+    }
+    performDelete(pendingDeleteId);
+    setPendingDeleteId(null);
+  };
+
+  const cancelWebDeletion = () => {
+    setPendingDeleteId(null);
   };
 
   return (
@@ -93,7 +116,7 @@ export default function TrainingsScreen() {
             style={[styles.createButton, { backgroundColor: colors.primary }]}
             onPress={() => router.push('/create-template')}
           >
-            <IconSymbol name="plus" size={24} color="#FFFFFF" />
+            <IconSymbol name="plus" size={18} color="#FFFFFF" />
             <Text style={styles.createButtonText}>Neues Training erstellen</Text>
           </TouchableOpacity>
 
@@ -115,8 +138,22 @@ export default function TrainingsScreen() {
             <View style={styles.templateList}>
               {templates.map(template => (
                 <View key={template.id} style={[styles.card, { backgroundColor: colors.card }]}>
+                  <View style={styles.cardCornerActions}>
+                    <TouchableOpacity
+                      style={[styles.iconButton, { backgroundColor: colors.secondary }]}
+                      onPress={() => router.push(`/edit-template?templateId=${template.id}`)}
+                    >
+                      <IconSymbol name="pencil" size={18} color="#FFFFFF" />
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.iconButton, { backgroundColor: colors.error }]}
+                      onPress={() => handleDeleteTemplate(template.id)}
+                    >
+                      <IconSymbol name="trash" size={18} color="#FFFFFF" />
+                    </TouchableOpacity>
+                  </View>
                   <TouchableOpacity
-                    style={styles.cardContent}
+                    style={[styles.cardContent, { paddingRight: 96 }]}
                     onPress={() => router.push(`/edit-template?templateId=${template.id}`)}
                   >
                     <View style={styles.cardHeader}>
@@ -128,11 +165,11 @@ export default function TrainingsScreen() {
                         />
                       </View>
                       <View style={styles.cardInfo}>
-                        <Text style={[styles.cardTitle, { color: colors.text }]}>
+                        <Text style={[styles.cardTitle, { color: colors.text }]} numberOfLines={1}>
                           {template.name}
                         </Text>
                         <Text style={[styles.cardSubtitle, { color: colors.textSecondary }]}>
-                          {template.exercises.length} Übungen
+                          {template.exercises.length} Uebungen
                         </Text>
                       </View>
                     </View>
@@ -145,19 +182,6 @@ export default function TrainingsScreen() {
                       <IconSymbol name="play.fill" size={18} color="#FFFFFF" />
                       <Text style={styles.actionButtonText}>Starten</Text>
                     </TouchableOpacity>
-                    <TouchableOpacity
-                      style={[styles.actionButton, { backgroundColor: colors.secondary }]}
-                      onPress={() => router.push(`/edit-template?templateId=${template.id}`)}
-                    >
-                      <IconSymbol name="pencil" size={18} color="#FFFFFF" />
-                      <Text style={styles.actionButtonText}>Bearbeiten</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      style={[styles.deleteButton, { backgroundColor: colors.error }]}
-                      onPress={() => deleteTemplate(template.id)}
-                    >
-                      <IconSymbol name="trash" size={18} color="#FFFFFF" />
-                    </TouchableOpacity>
                   </View>
                 </View>
               ))}
@@ -165,6 +189,57 @@ export default function TrainingsScreen() {
           )}
         </ScrollView>
       </View>
+      {Platform.OS === 'web' && (
+        <Dialog
+          open={Boolean(pendingDeleteId)}
+          onClose={cancelWebDeletion}
+          PaperProps={{
+            sx: {
+              borderRadius: '16px',
+              minWidth: 320,
+              backgroundColor: colors.card,
+              color: colors.text,
+              border: `1px solid ${colors.border}`,
+            },
+          }}
+        >
+          <DialogTitle sx={{ color: colors.text }}>Training loeschen</DialogTitle>
+          <DialogContent>
+            <DialogContentText sx={{ color: colors.textSecondary }}>
+              Moechtest du dieses Training wirklich loeschen?
+            </DialogContentText>
+          </DialogContent>
+          <DialogActions
+            sx={{
+              padding: '10px',
+              borderTop: `1px solid ${colors.border}`,
+            }}
+          >
+            <Button
+              onClick={cancelWebDeletion}
+              sx={{ color: colors.text, textTransform: 'none', fontWeight: 600 }}
+            >
+              Abbrechen
+            </Button>
+            <Button
+              onClick={confirmWebDeletion}
+              sx={{
+                textTransform: 'none',
+                fontWeight: 600,
+                borderRadius: '999px',
+                backgroundColor: colors.error,
+                color: '#FFFFFF',
+                '&:hover': {
+                  backgroundColor: colors.error,
+                  opacity: 0.9,
+                },
+              }}
+            >
+              Loeschen
+            </Button>
+          </DialogActions>
+        </Dialog>
+      )}
     </>
   );
 }
@@ -217,6 +292,7 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   card: {
+    position: 'relative',
     borderRadius: 12,
     padding: 16,
     marginBottom: 12,
@@ -249,16 +325,26 @@ const styles = StyleSheet.create({
   cardSubtitle: {
     fontSize: 14,
   },
+  cardCornerActions: {
+    position: 'absolute',
+    top: 12,
+    right: 12,
+    flexDirection: 'column',
+    gap: 6,
+    zIndex: 2,
+  },
   cardActions: {
     flexDirection: 'row',
-    gap: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 12,
   },
   actionButton: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    padding: 10,
+    padding: 12,
     borderRadius: 8,
     gap: 6,
   },
@@ -267,10 +353,10 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
   },
-  deleteButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 8,
+  iconButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     justifyContent: 'center',
     alignItems: 'center',
   },

@@ -243,10 +243,11 @@ const styles = StyleSheet.create({
   },
   input: {
     flex: 1,
+    width: '55%',
     borderWidth: 1,
     borderRadius: 8,
     padding: 12,
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: '600',
   },
   unit: {

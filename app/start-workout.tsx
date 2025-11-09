@@ -13,12 +13,13 @@ import {
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { IconSymbol } from '@/components/IconSymbol';
 import { useAppTheme } from '@/contexts/ThemeContext';
-import { 
-  getWorkoutTemplates, 
-  getWorkoutSessions, 
-  saveWorkoutSessions 
+import {
+  getWorkoutTemplates,
+  getWorkoutSessions,
+  saveWorkoutSessions,
 } from '@/utils/storage';
-import { WorkoutTemplate, WorkoutSession, StrengthSet, CardioData, EnduranceData } from '@/types/workout';
+import { WorkoutTemplate, WorkoutSession, StrengthSet } from '@/types/workout';
+import { getExerciseTypeLabel } from '@/utils/exercise';
 
 export default function StartWorkoutScreen() {
   const { colors } = useAppTheme();
@@ -30,20 +31,56 @@ export default function StartWorkoutScreen() {
   const [exerciseData, setExerciseData] = useState<any>({});
   const [loading, setLoading] = useState(true);
 
+  const getLatestExerciseValues = (sessions: WorkoutSession[]) => {
+    const sorted = [...sessions].sort(
+      (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
+    );
+    const map: Record<string, StrengthSet[] | any> = {};
+    for (const session of sorted) {
+      for (const exercise of session.exercises) {
+        if (map[exercise.exerciseId] == null) {
+          map[exercise.exerciseId] = exercise.data;
+        }
+      }
+    }
+    return map;
+  };
+
   const loadTemplate = useCallback(async () => {
-    const templates = await getWorkoutTemplates();
+    const [templates, sessions] = await Promise.all([
+      getWorkoutTemplates(),
+      getWorkoutSessions(),
+    ]);
     const foundTemplate = templates.find(t => t.id === templateId);
     if (foundTemplate) {
       setTemplate(foundTemplate);
-      // Initialize exercise data
+      const lastValues = getLatestExerciseValues(sessions);
       const initialData: any = {};
       foundTemplate.exercises.forEach(exercise => {
+        const previousData = lastValues[exercise.id];
+
         if (exercise.type === 'strength') {
-          initialData[exercise.id] = [{ weight: '', reps: '' }];
+          if (previousData && Array.isArray(previousData) && previousData.length > 0) {
+            initialData[exercise.id] = previousData.map((set: StrengthSet) => ({
+              weight: set.weight ? set.weight.toString() : '',
+              reps: set.reps ? set.reps.toString() : '',
+            }));
+          } else {
+            initialData[exercise.id] = [{ weight: '', reps: '' }];
+          }
         } else if (exercise.type === 'cardio') {
-          initialData[exercise.id] = { time: '', level: '', distance: '' };
+          initialData[exercise.id] = {
+            time: previousData?.time ? previousData.time.toString() : '',
+            level: previousData?.level ? previousData.level.toString() : '',
+            distance: previousData?.distance ? previousData.distance.toString() : '',
+          };
         } else if (exercise.type === 'endurance') {
-          initialData[exercise.id] = { time: '', distance: '' };
+          initialData[exercise.id] = {
+            time: previousData?.time ? previousData.time.toString() : '',
+            distance: previousData?.distance ? previousData.distance.toString() : '',
+          };
+        } else if (exercise.type === 'stretch') {
+          initialData[exercise.id] = previousData?.completed ?? false;
         }
       });
       setExerciseData(initialData);
@@ -86,25 +123,107 @@ export default function StartWorkoutScreen() {
     });
   };
 
+  const toggleStretch = (exerciseId: string) => {
+    setExerciseData({
+      ...exerciseData,
+      [exerciseId]: !exerciseData[exerciseId],
+    });
+  };
+
+  const buildExerciseEntry = (
+    exercise: WorkoutTemplate['exercises'][number]
+  ): WorkoutSession['exercises'][number] | null => {
+    const data = exerciseData[exercise.id];
+    if (data == null) {
+      return null;
+    }
+
+    if (exercise.type === 'strength' && Array.isArray(data)) {
+      const sets = data
+        .filter((set: any) => set.weight || set.reps)
+        .map((set: any) => ({
+          weight: parseFloat(set.weight),
+          reps: parseInt(set.reps),
+        }))
+        .filter(
+          (set: StrengthSet) =>
+            !Number.isNaN(set.weight) &&
+            !Number.isNaN(set.reps) &&
+            set.weight > 0 &&
+            set.reps > 0
+        );
+
+      if (sets.length === 0) {
+        return null;
+      }
+
+      return {
+        exerciseId: exercise.id,
+        exerciseName: exercise.name,
+        type: exercise.type,
+        data: sets,
+      };
+    }
+
+    if (exercise.type === 'cardio') {
+      const cardioData = exerciseData[exercise.id] || {};
+      const time = parseFloat(cardioData.time) || 0;
+      const level = parseInt(cardioData.level) || 0;
+      const distance = parseFloat(cardioData.distance) || 0;
+      if (time <= 0 && level <= 0 && distance <= 0) {
+        return null;
+      }
+      return {
+        exerciseId: exercise.id,
+        exerciseName: exercise.name,
+        type: exercise.type,
+        data: { time, level, distance },
+      };
+    }
+
+    if (exercise.type === 'endurance') {
+      const enduranceData = exerciseData[exercise.id] || {};
+      const time = parseFloat(enduranceData.time) || 0;
+      const distance = parseFloat(enduranceData.distance) || 0;
+      if (time <= 0 && distance <= 0) {
+        return null;
+      }
+      return {
+        exerciseId: exercise.id,
+        exerciseName: exercise.name,
+        type: exercise.type,
+        data: {
+          time,
+          distance,
+          pace: distance > 0 ? time / distance : 0,
+        },
+      };
+    }
+
+    if (exercise.type === 'stretch') {
+      const completed = !!exerciseData[exercise.id];
+      if (!completed) {
+        return null;
+      }
+      return {
+        exerciseId: exercise.id,
+        exerciseName: exercise.name,
+        type: exercise.type,
+        data: { completed: true },
+      };
+    }
+
+    return null;
+  };
+
   const handleFinish = async () => {
     if (!template) return;
 
-    // Validate that at least some data was entered
-    let hasData = false;
-    for (const exercise of template.exercises) {
-      const data = exerciseData[exercise.id];
-      if (exercise.type === 'strength' && Array.isArray(data)) {
-        if (data.some((set: any) => set.weight || set.reps)) {
-          hasData = true;
-          break;
-        }
-      } else if (data && (data.time || data.distance || data.level)) {
-        hasData = true;
-        break;
-      }
-    }
+    const completedExercises = template.exercises
+      .map(buildExerciseEntry)
+      .filter((entry): entry is WorkoutSession['exercises'][number] => entry !== null);
 
-    if (!hasData) {
+    if (completedExercises.length === 0) {
       Alert.alert('Fehler', 'Bitte trage mindestens einen Wert ein');
       return;
     }
@@ -115,45 +234,11 @@ export default function StartWorkoutScreen() {
       templateId: template.id,
       templateName: template.name,
       date: new Date().toISOString(),
-      exercises: template.exercises.map(exercise => {
-        let data: any;
-        if (exercise.type === 'strength') {
-          data = exerciseData[exercise.id]
-            .filter((set: any) => set.weight && set.reps)
-            .map((set: any) => ({
-              weight: parseFloat(set.weight),
-              reps: parseInt(set.reps),
-            }));
-        } else if (exercise.type === 'cardio') {
-          const cardioData = exerciseData[exercise.id];
-          data = {
-            time: parseFloat(cardioData.time) || 0,
-            level: parseInt(cardioData.level) || 0,
-            distance: parseFloat(cardioData.distance) || 0,
-          };
-        } else if (exercise.type === 'endurance') {
-          const enduranceData = exerciseData[exercise.id];
-          const time = parseFloat(enduranceData.time) || 0;
-          const distance = parseFloat(enduranceData.distance) || 0;
-          data = {
-            time,
-            distance,
-            pace: distance > 0 ? time / distance : 0,
-          };
-        }
-        return {
-          exerciseId: exercise.id,
-          exerciseName: exercise.name,
-          type: exercise.type,
-          data,
-        };
-      }),
+      exercises: completedExercises,
     };
 
     await saveWorkoutSessions([...sessions, newSession]);
-    Alert.alert('Erfolg', 'Training wurde gespeichert', [
-      { text: 'OK', onPress: () => router.back() },
-    ]);
+    router.back();
   };
 
   if (loading || !template) {
@@ -188,8 +273,7 @@ export default function StartWorkoutScreen() {
                   {exercise.name}
                 </Text>
                 <Text style={[styles.exerciseType, { color: colors.textSecondary }]}>
-                  {exercise.type === 'strength' ? 'Krafttraining' : 
-                   exercise.type === 'cardio' ? 'Cardio' : 'Ausdauer'}
+                  {getExerciseTypeLabel(exercise.type)}
                 </Text>
               </View>
             </View>
@@ -202,21 +286,31 @@ export default function StartWorkoutScreen() {
                       Satz {setIndex + 1}
                     </Text>
                     <TextInput
-                      style={[styles.setInput, { backgroundColor: colors.background, color: colors.text, borderColor: colors.border }]}
+                      style={[
+                        styles.setInput,
+                        styles.setInputWeight,
+                        { backgroundColor: colors.background, color: colors.text, borderColor: colors.border },
+                      ]}
                       value={set.weight}
                       onChangeText={(value) => updateSet(exercise.id, setIndex, 'weight', value)}
                       placeholder="kg"
                       placeholderTextColor={colors.textSecondary}
                       keyboardType="decimal-pad"
+                      maxLength={5}
                     />
-                    <Text style={[styles.setLabel, { color: colors.textSecondary }]}>×</Text>
+                    <Text style={[styles.setLabel, { color: colors.textSecondary }]}>x</Text>
                     <TextInput
-                      style={[styles.setInput, { backgroundColor: colors.background, color: colors.text, borderColor: colors.border }]}
+                      style={[
+                        styles.setInput,
+                        styles.setInputReps,
+                        { backgroundColor: colors.background, color: colors.text, borderColor: colors.border },
+                      ]}
                       value={set.reps}
                       onChangeText={(value) => updateSet(exercise.id, setIndex, 'reps', value)}
                       placeholder="Wdh"
                       placeholderTextColor={colors.textSecondary}
                       keyboardType="number-pad"
+                      maxLength={2}
                     />
                     {exerciseData[exercise.id].length > 1 && (
                       <TouchableOpacity
@@ -232,7 +326,7 @@ export default function StartWorkoutScreen() {
                   style={[styles.addSetButton, { backgroundColor: colors.primary }]}
                   onPress={() => addSet(exercise.id)}
                 >
-                  <IconSymbol name="plus" size={20} color="#FFFFFF" />
+                  <IconSymbol name="plus" size={18} color="#FFFFFF" />
                   <Text style={styles.addSetText}>Satz hinzufügen</Text>
                 </TouchableOpacity>
               </View>
@@ -309,6 +403,26 @@ export default function StartWorkoutScreen() {
                 )}
               </View>
             )}
+
+            {exercise.type === 'stretch' && (
+              <TouchableOpacity
+                style={[
+                  styles.stretchToggle,
+                  { borderColor: colors.border, backgroundColor: colors.background },
+                  exerciseData[exercise.id] && { borderColor: colors.primary, backgroundColor: colors.highlight },
+                ]}
+                onPress={() => toggleStretch(exercise.id)}
+              >
+                <IconSymbol
+                  name={exerciseData[exercise.id] ? 'checkmark.circle.fill' : 'circle'}
+                  size={24}
+                  color={exerciseData[exercise.id] ? colors.primary : colors.textSecondary}
+                />
+                <Text style={[styles.stretchToggleLabel, { color: colors.text }]}>
+                  abgeschlossen
+                </Text>
+              </TouchableOpacity>
+            )}
           </View>
         ))}
       </ScrollView>
@@ -375,7 +489,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
   },
   setsContainer: {
-    gap: 8,
+    gap: 6,
   },
   setRow: {
     flexDirection: 'row',
@@ -387,12 +501,18 @@ const styles = StyleSheet.create({
     width: 60,
   },
   setInput: {
-    flex: 1,
     borderWidth: 1,
     borderRadius: 8,
-    padding: 10,
+    paddingVertical: 8,
+    paddingHorizontal: 6,
     fontSize: 16,
     textAlign: 'center',
+  },
+  setInputWeight: {
+    width: 100,
+  },
+  setInputReps: {
+    width: 80,
   },
   setLabel: {
     fontSize: 16,
@@ -444,6 +564,19 @@ const styles = StyleSheet.create({
   paceLabel: {
     fontSize: 14,
     textAlign: 'center',
+  },
+  stretchToggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    padding: 12,
+    marginTop: 8,
+  },
+  stretchToggleLabel: {
+    fontSize: 16,
+    fontWeight: '600',
   },
   loadingText: {
     fontSize: 16,

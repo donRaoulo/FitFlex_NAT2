@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import {
   View,
   Text,
@@ -10,37 +10,47 @@ import {
   Alert,
   Platform,
 } from 'react-native';
-import { useRouter, useLocalSearchParams } from 'expo-router';
+import { useRouter, useFocusEffect } from 'expo-router';
 import { IconSymbol } from '@/components/IconSymbol';
 import { useAppTheme } from '@/contexts/ThemeContext';
-import { getWorkoutTemplates, saveWorkoutTemplates } from '@/utils/storage';
+import {
+  getWorkoutTemplates,
+  saveWorkoutTemplates,
+  consumePendingExerciseSelection,
+} from '@/utils/storage';
+import { getExerciseTypeLabel } from '@/utils/exercise';
 import { WorkoutTemplate, Exercise } from '@/types/workout';
 
 export default function CreateTemplateScreen() {
   const { colors } = useAppTheme();
   const router = useRouter();
-  const params = useLocalSearchParams();
   
   const [templateName, setTemplateName] = useState('');
   const [selectedExercises, setSelectedExercises] = useState<Exercise[]>([]);
 
-  // Handle exercise selection from select-exercise screen
-  useEffect(() => {
-    if (params.selectedExercise) {
-      try {
-        const exercise = JSON.parse(params.selectedExercise as string);
-        console.log('Adding exercise to template:', exercise);
-        setSelectedExercises((previous) => {
-          if (previous.find((existing) => existing.id === exercise.id)) {
-            return previous;
-          }
-          return [...previous, exercise];
-        });
-      } catch (error) {
-        console.error('Error parsing selected exercise:', error);
-      }
-    }
-  }, [params.selectedExercise]);
+  // Pull pending exercise selections whenever the screen regains focus
+  useFocusEffect(
+    React.useCallback(() => {
+      let isActive = true;
+
+      const syncPendingExercise = async () => {
+        const exercise = await consumePendingExerciseSelection('create');
+        if (exercise && isActive) {
+          setSelectedExercises(previous => {
+            if (previous.find(existing => existing.id === exercise.id)) {
+              return previous;
+            }
+            return [...previous, exercise];
+          });
+        }
+      };
+
+      syncPendingExercise();
+      return () => {
+        isActive = false;
+      };
+    }, [])
+  );
 
   const handleSave = async () => {
     console.log('Saving template:', templateName, selectedExercises);
@@ -65,10 +75,7 @@ export default function CreateTemplateScreen() {
 
       await saveWorkoutTemplates([...templates, newTemplate]);
       console.log('Template saved successfully');
-      
-      Alert.alert('Erfolg', 'Training wurde erstellt', [
-        { text: 'OK', onPress: () => router.push('/(tabs)/trainings') },
-      ]);
+      router.replace('/(tabs)/trainings');
     } catch (error) {
       console.error('Error saving template:', error);
       Alert.alert('Fehler', 'Training konnte nicht gespeichert werden');
@@ -139,8 +146,7 @@ export default function CreateTemplateScreen() {
                       {exercise.name}
                     </Text>
                     <Text style={[styles.exerciseType, { color: colors.textSecondary }]}>
-                      {exercise.type === 'strength' ? 'Krafttraining' : 
-                       exercise.type === 'cardio' ? 'Cardio' : 'Ausdauer'}
+                      {getExerciseTypeLabel(exercise.type)}
                     </Text>
                   </View>
                 </View>
